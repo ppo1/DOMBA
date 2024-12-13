@@ -217,10 +217,11 @@ class Evaluator(object):
 
 
     def canary_attack(self, acm1, acm2, avg_funcs, canaries, can_ds, neg_per_pos, exp_name, ep_mod,
-                        csv_name, field_pref='', overide=False, log_amounts=False):
+                        csv_name, field_pref='', overide=False, log_amounts=False, parse_res=True):
         num_funcs = len(avg_funcs)
         skip_calc = False
         res_path = os.path.join(self.workdir, "canary_attack", exp_name + ".pkl")
+        print("res_path:", res_path)
         os.makedirs(os.path.dirname(res_path), exist_ok=True)
         print(f"{neg_per_pos=}")
         if not overide:
@@ -273,25 +274,33 @@ class Evaluator(object):
                         func_res.setdefault(amount, []).append((place, er.item(), al))
                 res[fn] = func_res
             pickle.dump([res, lp_res], open(res_path,"wb"))
+        if parse_res:
+            self.parse_canary_attack_res([res_path], ep_mod, csv_name, field_pref)
+        else:
+            return res_path
 
+    def parse_canary_attack_res(self, paths, ep_mod, csv_name, field_pref=''):
+        res = {}
+        for path in paths:
+            r,_ = pickle.load(open(path,"rb"))
+            for fn, func_res in r.items():
+                if fn not in res:
+                    res[fn] = {}
+                for k, vals in func_res.items():
+                    res[fn].setdefault(k,[])
+                    res[fn][k] += vals
         data = []
         for fn, func_res in res.items():
             exp_suf = ''
-            if len(avg_funcs) > 1:
+            if len(res) > 1:
                 exp_suf = '_' + fn
             record = {"experiment":ep_mod+exp_suf}
             for amount, vals in sorted(func_res.items()):
                 ers = [x[1] for x in vals]
                 median_er = np.median(ers)
-                max_er = max(ers)
                 est_median_exp = -np.log2(scipy.stats.norm(0, 1).cdf(-median_er))
-                est_max_exp = -np.log2(scipy.stats.norm(0, 1).cdf(-max_er))
-
-                exps = [np.log2(neg_per_pos) - np.log2(x[0]+1) for x in vals]
-                median_exp = np.median(exps)
-                max_exp = max(exps)
-
                 record[f"{field_pref}attack_score_{amount}"] = est_median_exp
+            data.append(record)
         return add2csv(data, os.path.join(self.workdir, csv_name + ".csv"))
 
     def get_canaries_ds(self, ds, words, can_len=7, amounts=(1,3,10,30,100), seed=1234):
